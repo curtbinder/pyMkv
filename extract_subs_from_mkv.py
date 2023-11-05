@@ -12,6 +12,7 @@ import json
 
 #path = "/home/binder/tmp"
 path = ""
+subtitle_output = "subtitles"
 
 # collect list of files
 all_mkvs = []
@@ -87,24 +88,21 @@ class Mkv:
         return False
 
     def exportSubtitles(self):
+        global subtitle_output
         # Loop through the subtitles
         # if it hasVobSubtitles, then we need to extract them
 
-        #print("Export: \n  * " + file + "\n  * " + track + "\n  * " + outfile)
-        ##cmd = ["mkvextract \"" + file + "\" tracks " + track + ":\"" + outfile + "\""]
-        #print(cmd)
-        ##proc = subprocess.call(cmd, shell=True, stdout=subprocess.PIPE)
         if not self.hasSubtitles():
             return;
         
-        ## TODO save subtitles in one output folder
         for s in self.subtitles:
             if s.isVobSub():
+                print("Extracting " + self.name + " - track #" + s.track_id)
                 # VOB Subtitle, let's extract them
-                outfile = os.path.join(self.path, self.name) + s.getFilenameSuffix()
+                outfile = os.path.join(subtitle_output, self.name) + s.getFilenameSuffix()
                 cmd = ["mkvextract \"" + self.fullfilename + "\" tracks " + s.track_id + ":\"" + outfile + "\""]
-                print(cmd)
-                ##proc = subprocess.call(cmd, shell=True, stdout=subprocess.PIPE)
+                #print(cmd)
+                proc = subprocess.call(cmd, shell=True, stdout=subprocess.PIPE)
 
 
 
@@ -154,6 +152,7 @@ def main():
     global all_mkvs
     global path
     global vob_mkvs
+    global subtitle_output
 
     if len(sys.argv) > 1:
         if os.path.isdir(sys.argv[1]):
@@ -168,6 +167,14 @@ def main():
     else:
         # no folder set, use current dir
         path = sys.path[0]
+
+    subtitle_output = os.path.join(path, subtitle_output)
+    print("Saving subtitles to: " + subtitle_output)
+    if not os.path.exists(subtitle_output):
+        os.mkdir(subtitle_output)
+    if not os.path.exists(subtitle_output):
+        print("Cannot create output directory: " + subtitle_output)
+        return
 
     for (root, dirs, file) in os.walk(path):
         for f in file:
