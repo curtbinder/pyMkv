@@ -18,61 +18,142 @@ all_mkvs = []
 # list of mkvs with VOBSUB
 vob_mkvs = []
 
+class Subtitle:
+    def __init__(self, track_id, codec, codec_id, lang):
+        self.track_id = track_id
+        self.codec = codec
+        self.codec_id = codec_id
+        self.lang = lang
+        
+    def isVobSub(self):
+        # Look for codec VobSub or S_VOBSUB, type subtitles
+        if self.codec_id == "S_VOBSUB":
+            return True
+        else:
+            return False
 
-def export_subtitles(file, track, outfile):
-    #print("Export: \n  * " + file + "\n  * " + track + "\n  * " + outfile)
-    cmd = ["mkvextract \"" + file + "\" tracks " + track + ":\"" + outfile + "\""]
-    #print(cmd)
-    proc = subprocess.call(cmd, shell=True, stdout=subprocess.PIPE)
+    def getFilenameSuffix(self):
+        return ".track_" + self.track_id + "." + self.lang + ".sub"
 
-# Process files
-#
-# Loop through all mkv's and check for VOBSUB subtitles
-# If we find one, add that file to the list of vob_mkvs
-# Otherwise, skip the file
-def process_files():
-    global all_mkvs
-    global vob_mkvs
+    def __str__(self):
+        return "Subtitle: (" + self.track_id + ") " + self.codec + "(" + self.codec_id + ") - " + self.lang
 
+
+class Mkv:
     # run mkvmerge on each file to get information to process
     # mkvmerge -i -J FILENAME.MKV
-    # Look for codec VobSub or S_VOBSUB, type subtitles
+    def __init__(self, fullfilename):
+        self.fullfilename = fullfilename
+        # Get the path it's located
+        self.path = os.path.dirname(fullfilename)
+        # Get the filename and extension
+        (self.name, self.ext) = os.path.splitext(os.path.basename(fullfilename))
+        self.title = "Untitled"
+        self.subtitles = []
 
-    for m in all_mkvs:
-        cmd = ["mkvmerge -i -J \"" + m + "\""]
-        #print(cmd)
+    def loadInfo(self):
+        cmd = ["mkvmerge -i -J \"" + self.fullfilename + "\""]
         proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
         json_data, err = proc.communicate()
         json_data = json_data.decode("utf-8")
         ## gets all mkv objects in json format
         json_data = json.loads(json_data)
         
-        path = os.path.dirname(m)
-        (name, ext) = os.path.splitext(os.path.basename(m))
+        ## Get the Title
+        if "title" in json_data["container"]["properties"]:
+            self.title = json_data["container"]["properties"]["title"]
 
         ## look for subtitles
         ## make sure there is tracks in the file
         if not (json_data.get("tracks") is None):
-            if "title" in json_data["container"]["properties"]:
-                print("Name: " + json_data["container"]["properties"]["title"])
-            #print("Name: " + json_data["container"]["properties"]["title"] + " (" + json_data["file_name"] + ")")
             ## loop through the tracks, looking for subtitles
             for track in json_data["tracks"]:
                 if track["type"] == "subtitles":
-                    track_codec = track["codec"]
-                    track_type_id = track["properties"]["codec_id"]
-                    track_id = str(track["id"])
-                    track_lang = track["properties"]["language"]
-                    if track_type_id == "S_VOBSUB":
-                        sub_track_filename = name + ".track_" + track_id + "." + track_lang + ".sub"
-                        print(" * Subtitle: (" + track_id + ") " + track_codec + "(" + track_type_id + ") - " + track_lang)
-#                        export_subtitles(m, track_id, path + "/" + sub_track_filename)
+                    st = Subtitle(str(track["id"]), track["codec"], track["properties"]["codec_id"], track["properties"]["language"])
+                    self.subtitles.append(st)
 
-    
+    def hasSubtitles(self):
+        if len(self.subtitles) > 0:
+            return True
+        else:
+            return False
+
+    def hasVobSubtitles(self):
+        if self.hasSubtitles():
+            for s in self.subtitles:
+                if s.isVobSub():
+                    # if we find one, break out and return True
+                    return True
+        return False
+
+    def exportSubtitles(self):
+        # Loop through the subtitles
+        # if it hasVobSubtitles, then we need to extract them
+
+        #print("Export: \n  * " + file + "\n  * " + track + "\n  * " + outfile)
+        ##cmd = ["mkvextract \"" + file + "\" tracks " + track + ":\"" + outfile + "\""]
+        #print(cmd)
+        ##proc = subprocess.call(cmd, shell=True, stdout=subprocess.PIPE)
+        if not self.hasSubtitles():
+            return;
+        
+        ## TODO save subtitles in one output folder
+        for s in self.subtitles:
+            if s.isVobSub():
+                # VOB Subtitle, let's extract them
+                outfile = os.path.join(self.path, self.name) + s.getFilenameSuffix()
+                cmd = ["mkvextract \"" + self.fullfilename + "\" tracks " + s.track_id + ":\"" + outfile + "\""]
+                print(cmd)
+                ##proc = subprocess.call(cmd, shell=True, stdout=subprocess.PIPE)
+
+
+
+    def __str__(self):
+        s = "Filename: " + self.fullfilename 
+        s += "\n  * Name: " + self.name
+        s += "\n  * Title: " + self.title
+        if self.hasSubtitles:
+            s += "\n  * Subtitles: " + str(len(self.subtitles))
+            for i in self.subtitles:
+                s += "\n    * " + i.__str__()
+        return s
+
+
+##def export_subtitles(file, track, outfile):
+##    #print("Export: \n  * " + file + "\n  * " + track + "\n  * " + outfile)
+##    cmd = ["mkvextract \"" + file + "\" tracks " + track + ":\"" + outfile + "\""]
+##    #print(cmd)
+##    proc = subprocess.call(cmd, shell=True, stdout=subprocess.PIPE)
+
+# Scan files
+#
+# Loop through all mkv's and check for VOBSUB subtitles
+# If we find one, add that file to the list of vob_mkvs
+# Otherwise, skip the file
+def scan_files():
+    global all_mkvs
+    global vob_mkvs
+
+    for m in all_mkvs:
+        #print("Processing %d of %d files..." % (count, total))
+        m1 = Mkv(m)
+        m1.loadInfo()
+        if m1.hasVobSubtitles():
+            vob_mkvs.append(m1)
+
+    print("Found %d mkvs with VOBs" % (len(vob_mkvs)))
+
+def extract_subtitles():
+    global vob_mkvs
+
+    for m in vob_mkvs:
+        m.exportSubtitles()
+
 
 def main():
     global all_mkvs
     global path
+    global vob_mkvs
 
     if len(sys.argv) > 1:
         if os.path.isdir(sys.argv[1]):
@@ -94,12 +175,11 @@ def main():
                 all_mkvs.append(os.path.join(root, f))
 
     print("Found %d mkvs in: %s" % (len(all_mkvs), path))
-#    for i in all_mkvs:
-#        n = os.path.basename(i)
-#        (name, ext) = os.path.splitext(n)
-#        print("  * " + name + " (" + ext + ") - DIR: " + os.path.dirname(i))
-    process_files()
-
+    scan_files()
+    if len(vob_mkvs) > 1:
+       response = input("About to extract subtitles from %d mkvs, proceed? " % (len(vob_mkvs))) 
+       if response == 'y':
+           extract_subtitles()
 
 
 if __name__ == "__main__":
